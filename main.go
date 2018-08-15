@@ -46,9 +46,51 @@ type core struct {
 	done     chan struct{}
 }
 
+type rate struct {
+	rate      int
+	increment int
+
+	nextTick time.Time
+	nextInc  time.Time
+}
+
+func newRate(r, inc int) *rate {
+	return &rate{
+		rate:      r,
+		increment: inc,
+
+		nextInc: time.Now().Add(time.Second),
+	}
+}
+
+func (r *rate) SetNext() {
+	freq := time.Duration(1.0 / float64(r.rate) * float64(time.Second))
+	r.nextTick = time.Now().Add(freq)
+}
+
+func (r *rate) Pause() {
+	// Now we need to wait for the next interval
+	waitTime := time.Now().Sub(r.nextTick)
+	if waitTime < time.Millisecond {
+		for time.Now().Before(r.nextTick) {
+		}
+	} else {
+		time.Sleep(waitTime)
+	}
+
+	// Increment the rate if needed
+	if r.increment > 0 {
+		for time.Now().After(r.nextInc) {
+			r.rate += r.increment
+			r.nextInc = r.nextInc.Add(time.Second)
+		}
+	}
+}
+
 var _headersValue headerFlags
 var (
 	_rate        = flag.Int("rate", 1, "RPS for the test")
+	_increment   = flag.Int("increment", 0, "RPS that the rate increments linearly over time")
 	_test        = flag.Bool("test", false, "Issues a single test request and prints the output")
 	_time        = flag.Duration("time", 0, "How long the test should run")
 	_method      = flag.String("method", http.MethodGet, "The method to use")
@@ -127,8 +169,7 @@ func main() {
 	core.wg.Add(1)
 	go core.reportStatus()
 
-	freq := time.Duration(1.0 / float64(*_rate) * float64(time.Second))
-	core.blast(freq)
+	core.blast(newRate(*_rate, *_increment))
 
 	// When blast returns the load test is done, so wait for all outstanding routines to close
 	logger.Println("Waiting for outstanding requests")
@@ -307,12 +348,12 @@ func (c *core) worker(reqChan chan struct{}) {
 	}
 }
 
-func (c *core) blast(freq time.Duration) {
+func (c *core) blast(rate *rate) {
 	reqChan := make(chan struct{})
 	defer close(reqChan)
 
 	for {
-		next := time.Now().Add(freq)
+		rate.SetNext()
 		select {
 		case <-c.done:
 			logger.Println("Closing the blaster routine")
@@ -327,13 +368,7 @@ func (c *core) blast(freq time.Duration) {
 			}
 
 			// Now we need to wait for the next interval
-			waitTime := time.Now().Sub(next)
-			if waitTime < time.Millisecond {
-				for time.Now().Before(next) {
-				}
-			} else {
-				time.Sleep(waitTime)
-			}
+			rate.Pause()
 		}
 	}
 }
