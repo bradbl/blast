@@ -192,10 +192,6 @@ func (c *core) reportStatus() {
 }
 
 func (c *core) issueQuery() {
-	defer c.wg.Done()
-	defer atomic.AddInt32(&c.routines, -1)
-	atomic.AddInt32(&c.routines, 1)
-
 	req := c.makeReq()
 
 	var conStart, conEnd time.Time
@@ -294,18 +290,43 @@ func (c *core) issueQuery() {
 		conLatency) // connect
 }
 
+func (c *core) worker(reqChan chan struct{}) {
+	defer c.wg.Done()
+	defer atomic.AddInt32(&c.routines, -1)
+	atomic.AddInt32(&c.routines, 1)
+
+	for range reqChan {
+		c.issueQuery()
+	}
+}
+
 func (c *core) blast(freq time.Duration) {
-	ticker := time.NewTicker(freq)
-	defer ticker.Stop()
+	reqChan := make(chan struct{})
+	defer close(reqChan)
 
 	for {
+		next := time.Now().Add(freq)
 		select {
-		case <-ticker.C:
-			c.wg.Add(1)
-			go c.issueQuery()
 		case <-c.done:
 			logger.Println("Closing the blaster routine")
 			return
+		default:
+			select {
+			case reqChan <- struct{}{}:
+			default:
+				// All workers busy. Create a new worker and try again.
+				c.wg.Add(1)
+				go c.worker(reqChan)
+			}
+
+			// Now we need to wait for the next interval
+			waitTime := time.Now().Sub(next)
+			if waitTime < time.Millisecond {
+				for time.Now().Before(next) {
+				}
+			} else {
+				time.Sleep(waitTime)
+			}
 		}
 	}
 }
