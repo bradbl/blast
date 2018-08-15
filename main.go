@@ -179,7 +179,7 @@ func (c *core) reportStatus() {
 func (c *core) issueQuery() {
 	defer c.wg.Done()
 	defer atomic.AddInt32(&c.routines, -1)
-	threads := atomic.AddInt32(&c.routines, 1)
+	atomic.AddInt32(&c.routines, 1)
 
 	req := c.makeReq()
 	reqBytes, err := httputil.DumpRequestOut(req, true)
@@ -199,6 +199,7 @@ func (c *core) issueQuery() {
 	if err != nil {
 		atomic.AddInt32(&c.errCount, 1)
 		failureMsg = err.Error()
+		threads := atomic.LoadInt32(&c.routines)
 		if c.outChan != nil {
 			c.outChan <- fmt.Sprintf(
 				outFmt,
@@ -219,22 +220,23 @@ func (c *core) issueQuery() {
 		return
 	}
 
+	if err := res.Body.Close(); err != nil {
+		panic(err)
+	}
+
 	success := res.StatusCode < 400
 	if !success {
 		failureMsg = res.Status
 	}
 
-	bout, err := httputil.DumpResponse(res, true)
-	if err != nil {
-		panic(err)
-	}
-
-	if err := res.Body.Close(); err != nil {
-		panic(err)
-	}
-
-	recvBytes := len(bout)
 	if c.outChan != nil {
+		bout, err := httputil.DumpResponse(res, true)
+		if err != nil {
+			panic(err)
+		}
+
+		recvBytes := len(bout)
+		threads := atomic.LoadInt32(&c.routines)
 		c.outChan <- fmt.Sprintf(
 			outFmt,
 			ts,
