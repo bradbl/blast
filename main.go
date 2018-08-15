@@ -220,13 +220,20 @@ func (c *core) issueQuery() {
 		return
 	}
 
-	if err := res.Body.Close(); err != nil {
-		panic(err)
-	}
-
 	success := res.StatusCode < 400
 	if !success {
 		failureMsg = res.Status
+	}
+
+	if success {
+		atomic.AddInt32(&c.successCount, 1)
+	} else {
+		atomic.AddInt32(&c.errCount, 1)
+	}
+
+	if c.outChan == nil {
+		closeBody(res)
+		return
 	}
 
 	if c.outChan != nil {
@@ -235,6 +242,7 @@ func (c *core) issueQuery() {
 			panic(err)
 		}
 
+		closeBody(res)
 		recvBytes := len(bout)
 		threads := atomic.LoadInt32(&c.routines)
 		c.outChan <- fmt.Sprintf(
@@ -253,11 +261,11 @@ func (c *core) issueQuery() {
 			0, // idle time
 			0) // connect
 	}
+}
 
-	if success {
-		atomic.AddInt32(&c.successCount, 1)
-	} else {
-		atomic.AddInt32(&c.errCount, 1)
+func closeBody(res *http.Response) {
+	if err := res.Body.Close(); err != nil {
+		panic(err)
 	}
 }
 
