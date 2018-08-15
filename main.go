@@ -48,12 +48,13 @@ type core struct {
 
 var _headersValue headerFlags
 var (
-	_rate    = flag.Int("rate", 1, "RPS for the test")
-	_test    = flag.Bool("test", false, "Issues a single test request and prints the output")
-	_time    = flag.Duration("time", 0, "How long the test should run")
-	_method  = flag.String("method", http.MethodGet, "The method to use")
-	_file    = flag.String("file", "", "Output file to write results")
-	_verbsoe = flag.Bool("verbose", false, "Enables verbose output")
+	_rate        = flag.Int("rate", 1, "RPS for the test")
+	_test        = flag.Bool("test", false, "Issues a single test request and prints the output")
+	_time        = flag.Duration("time", 0, "How long the test should run")
+	_method      = flag.String("method", http.MethodGet, "The method to use")
+	_file        = flag.String("file", "", "Output file to write results")
+	_verbsoe     = flag.Bool("verbose", false, "Enables verbose output")
+	_connections = flag.Int("connections", 10000, "Max open idle connections per target")
 )
 
 var logger = log.New(ioutil.Discard, "DEBUG ", log.Lshortfile|log.Lmicroseconds)
@@ -72,7 +73,7 @@ func main() {
 			TLSClientConfig: &tls.Config{
 				InsecureSkipVerify: true,
 			},
-			MaxIdleConnsPerHost: 10000,
+			MaxIdleConnsPerHost: *_connections,
 		},
 		Timeout: 10 * time.Second,
 	}
