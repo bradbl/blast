@@ -72,6 +72,7 @@ func main() {
 			TLSClientConfig: &tls.Config{
 				InsecureSkipVerify: true,
 			},
+			MaxIdleConnsPerHost: 10000,
 		},
 		Timeout: 10 * time.Second,
 	}
