@@ -8,6 +8,7 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
+	"net/http/httptrace"
 	"net/http/httputil"
 	"os"
 	"strings"
@@ -124,7 +125,17 @@ func main() {
 	core.blast(freq)
 
 	// When blast returns the load test is done, so wait for all outstanding routines to close
+	logger.Println("Waiting for outstanding requests")
+	ticker := time.NewTicker(time.Second)
+	go func() {
+		for range ticker.C {
+			logger.Printf("Routines: %d", atomic.LoadInt32(&core.routines))
+		}
+	}()
+
 	core.wg.Wait()
+	ticker.Stop()
+	logger.Println("Done")
 	fmt.Println()
 }
 
@@ -182,16 +193,29 @@ func (c *core) issueQuery() {
 	atomic.AddInt32(&c.routines, 1)
 
 	req := c.makeReq()
+
+	var conStart, conEnd time.Time
+	trace := httptrace.ClientTrace{
+		ConnectStart: func(network, addr string) {
+			conStart = time.Now()
+		},
+		ConnectDone: func(network, addr string, err error) {
+			conEnd = time.Now()
+		},
+	}
+
 	reqBytes, err := httputil.DumpRequestOut(req, true)
 	if err != nil {
 		panic(err)
 	}
 
+	req = req.WithContext(httptrace.WithClientTrace(req.Context(), &trace))
 	start := time.Now()
 	res, err := c.client.Do(req)
 	end := time.Now()
 
 	latency := end.Sub(start).Truncate(time.Millisecond) / time.Millisecond
+	conLatency := conEnd.Sub(conStart).Truncate(time.Millisecond) / time.Millisecond
 	ts := end.UnixNano() / int64(time.Millisecond)
 	var failureMsg string
 	const outFmt = "%d,%d,HTTP Request,%d,%s,LoadTestThread,text,%v,%s,%d,%d,%d,%d,%d,%d,%d"
@@ -214,8 +238,8 @@ func (c *core) issueQuery() {
 				threads, // grpThreads
 				threads, // allThreads,
 				latency,
-				0, // idle time
-				0) // connect
+				0,          // idle time
+				conLatency) // connect
 		}
 		return
 	}
@@ -257,8 +281,8 @@ func (c *core) issueQuery() {
 		threads, // grpThreads
 		threads, // allThreads,
 		latency,
-		0, // idle time
-		0) // connect
+		0,          // idle time
+		conLatency) // connect
 }
 
 func closeBody(res *http.Response) {
