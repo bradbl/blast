@@ -98,6 +98,7 @@ var (
 	_verbsoe     = flag.Bool("verbose", false, "Enables verbose output")
 	_connections = flag.Int("connections", 10000, "Max open idle connections per target")
 	_keepalive   = flag.Bool("keepalive", true, "Sets keepalive for connections")
+	_workers     = flag.Int("workers", 0, "The number of initial worker routines")
 )
 
 var logger = log.New(ioutil.Discard, "DEBUG ", log.Lshortfile|log.Lmicroseconds)
@@ -351,6 +352,11 @@ func (c *core) worker(reqChan chan struct{}) {
 func (c *core) blast(rate *rate) {
 	reqChan := make(chan struct{})
 	defer close(reqChan)
+
+	c.wg.Add(*_workers)
+	for i := 0; i < *_workers; i++ {
+		go c.worker(reqChan)
+	}
 
 	for {
 		rate.SetNext()
