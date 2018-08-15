@@ -144,8 +144,10 @@ func main() {
 
 	// All the workers are done, so now we just need to wait until all the output is drained
 	ticker.Stop()
-	close(core.outChan)
-	<-core.outDone
+	if core.outDone != nil && core.outChan != nil {
+		close(core.outChan)
+		<-core.outDone
+	}
 
 	logger.Println("Done")
 	fmt.Println()
