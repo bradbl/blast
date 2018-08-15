@@ -55,6 +55,7 @@ var (
 	_file        = flag.String("file", "", "Output file to write results")
 	_verbsoe     = flag.Bool("verbose", false, "Enables verbose output")
 	_connections = flag.Int("connections", 10000, "Max open idle connections per target")
+	_keepalive   = flag.Bool("keepalive", true, "Sets keepalive for connections")
 )
 
 var logger = log.New(ioutil.Discard, "DEBUG ", log.Lshortfile|log.Lmicroseconds)
@@ -74,6 +75,8 @@ func main() {
 				InsecureSkipVerify: true,
 			},
 			MaxIdleConnsPerHost: *_connections,
+			IdleConnTimeout:     10 * time.Second,
+			DisableKeepAlives:   !*_keepalive,
 		},
 		Timeout: 10 * time.Second,
 	}
@@ -261,17 +264,18 @@ func (c *core) issueQuery() {
 		atomic.AddInt32(&c.errCount, 1)
 	}
 
-	if c.outChan == nil {
-		closeBody(res)
-		return
-	}
-
+	// Read the response body even if we don't log it because its needed to ensure
+	// TCP connections get reused.
 	bout, err := httputil.DumpResponse(res, true)
 	if err != nil {
 		panic(err)
 	}
 
 	closeBody(res)
+	if c.outChan == nil {
+		return
+	}
+
 	recvBytes := len(bout)
 	threads := atomic.LoadInt32(&c.routines)
 	c.outChan <- fmt.Sprintf(
@@ -339,6 +343,13 @@ func closeBody(res *http.Response) {
 }
 
 func issueTestRequest(client *http.Client, req *http.Request) {
+	t := client.Transport.(*http.Transport)
+	t.DisableCompression = true
+
+	if !*_keepalive {
+		req.Close = true
+	}
+
 	breq, err := httputil.DumpRequestOut(req, true)
 	if err != nil {
 		panic(err)
