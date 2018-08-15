@@ -38,6 +38,7 @@ type core struct {
 	successCount int32
 
 	outChan chan string
+	outDone chan struct{}
 	out     io.Writer
 
 	wg       sync.WaitGroup
@@ -114,7 +115,7 @@ func main() {
 		fmt.Fprintln(f, "timeStamp,elapsed,label,responseCode,responseMessage,threadName,dataType,success,failureMessage,bytes,sentBytes,grpThreads,allThreads,Latency,IdleTime,Connect")
 		core.out = f
 		core.outChan = make(chan string, 1)
-		core.wg.Add(1)
+		core.outDone = make(chan struct{})
 		go core.writeOut()
 	}
 
@@ -130,11 +131,17 @@ func main() {
 	go func() {
 		for range ticker.C {
 			logger.Printf("Routines: %d", atomic.LoadInt32(&core.routines))
+			return
 		}
 	}()
 
 	core.wg.Wait()
+
+	// All the workers are done, so now we just need to wait until all the output is drained
 	ticker.Stop()
+	close(core.outChan)
+	<-core.outDone
+
 	logger.Println("Done")
 	fmt.Println()
 }
@@ -150,16 +157,12 @@ func (c *core) makeReq() *http.Request {
 }
 
 func (c *core) writeOut() {
-	defer c.wg.Done()
-	for {
-		select {
-		case line := <-c.outChan:
-			fmt.Fprintf(c.out, "%s\n", line)
-		case <-c.done:
-			logger.Println("Closing log writer routine")
-			return
-		}
+	for line := range c.outChan {
+		fmt.Fprintf(c.out, "%s\n", line)
 	}
+
+	logger.Println("Closing log writer routine")
+	close(c.outDone)
 }
 
 func (c *core) reportStatus() {
@@ -285,12 +288,6 @@ func (c *core) issueQuery() {
 		conLatency) // connect
 }
 
-func closeBody(res *http.Response) {
-	if err := res.Body.Close(); err != nil {
-		panic(err)
-	}
-}
-
 func (c *core) blast(freq time.Duration) {
 	ticker := time.NewTicker(freq)
 	defer ticker.Stop()
@@ -304,6 +301,12 @@ func (c *core) blast(freq time.Duration) {
 			logger.Println("Closing the blaster routine")
 			return
 		}
+	}
+}
+
+func closeBody(res *http.Response) {
+	if err := res.Body.Close(); err != nil {
+		panic(err)
 	}
 }
 
