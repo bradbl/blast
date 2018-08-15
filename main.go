@@ -221,6 +221,10 @@ func (c *core) issueQuery() {
 
 	latency := end.Sub(start).Truncate(time.Millisecond) / time.Millisecond
 	conLatency := conEnd.Sub(conStart).Truncate(time.Millisecond) / time.Millisecond
+	if conLatency < 0 {
+		conLatency = 0
+	}
+
 	ts := end.UnixNano() / int64(time.Millisecond)
 	var failureMsg string
 	const outFmt = "%d,%d,HTTP Request,%d,%s,LoadTestThread,text,%v,%s,%d,%d,%d,%d,%d,%d,%d"
