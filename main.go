@@ -271,7 +271,7 @@ func (c *core) issueQuery() {
 
 	ts := end.UnixNano() / int64(time.Millisecond)
 	var failureMsg string
-	const outFmt = "%d,%d,HTTP Request,%d,%s,LoadTestThread,text,%v,%s,%d,%d,%d,%d,%d,%d,%d"
+	const outFmt = "%d,%d,%s,%d,%s,%s,%s,%v,%q,%d,%d,%d,%d,%d,%d,%d"
 
 	if err != nil {
 		atomic.AddInt32(&c.errCount, 1)
@@ -280,19 +280,22 @@ func (c *core) issueQuery() {
 		if c.outChan != nil {
 			c.outChan <- fmt.Sprintf(
 				outFmt,
-				ts,
-				latency,
-				0,     //status code
-				"",    // status
-				false, //success
-				failureMsg,
-				0, //recvBytes
-				sentBytes,
-				threads, // grpThreads
-				threads, // allThreads,
-				latency,
-				0,          // idle time
-				conLatency) // connect
+				ts,               // timestamp
+				latency,          // elapsed
+				"HTTP Request",   // label
+				0,                // response code
+				"",               // responseMessage
+				"LoadTestThread", // threadName
+				"text",           // dataType
+				false,            // success
+				failureMsg,       // failureMessage
+				0,                // bytes
+				sentBytes,        // sentBytes
+				threads,          // grpThreads
+				threads,          // allThreads,
+				latency,          // latency
+				0,                // idle time
+				conLatency)       // connect
 		}
 		return
 	}
@@ -324,19 +327,22 @@ func (c *core) issueQuery() {
 	threads := atomic.LoadInt32(&c.routines)
 	c.outChan <- fmt.Sprintf(
 		outFmt,
-		ts,
-		latency,
-		res.StatusCode,
-		res.Status,
-		success,
-		failureMsg,
-		recvBytes,
-		sentBytes,
-		threads, // grpThreads
-		threads, // allThreads,
-		latency,
-		0,          // idle time
-		conLatency) // connect
+		ts,               // timestamp
+		latency,          // elapsed
+		"HTTP Request",   // label
+		res.StatusCode,   // response code
+		res.Status,       // responseMessage
+		"LoadTestThread", // threadName
+		"text",           // dataType
+		success,          // success
+		failureMsg,       // failureMessage
+		recvBytes,        // bytes
+		sentBytes,        // sentBytes
+		threads,          // grpThreads
+		threads,          // allThreads,
+		latency,          // latency
+		0,                // idle time
+		conLatency)       // connect
 }
 
 func (c *core) worker(reqChan chan struct{}) {
