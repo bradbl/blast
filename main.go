@@ -236,31 +236,29 @@ func (c *core) issueQuery() {
 		return
 	}
 
-	if c.outChan != nil {
-		bout, err := httputil.DumpResponse(res, true)
-		if err != nil {
-			panic(err)
-		}
-
-		closeBody(res)
-		recvBytes := len(bout)
-		threads := atomic.LoadInt32(&c.routines)
-		c.outChan <- fmt.Sprintf(
-			outFmt,
-			ts,
-			latency,
-			res.StatusCode,
-			res.Status,
-			success,
-			failureMsg,
-			recvBytes,
-			reqBytes,
-			threads, // grpThreads
-			threads, // allThreads,
-			latency,
-			0, // idle time
-			0) // connect
+	bout, err := httputil.DumpResponse(res, true)
+	if err != nil {
+		panic(err)
 	}
+
+	closeBody(res)
+	recvBytes := len(bout)
+	threads := atomic.LoadInt32(&c.routines)
+	c.outChan <- fmt.Sprintf(
+		outFmt,
+		ts,
+		latency,
+		res.StatusCode,
+		res.Status,
+		success,
+		failureMsg,
+		recvBytes,
+		reqBytes,
+		threads, // grpThreads
+		threads, // allThreads,
+		latency,
+		0, // idle time
+		0) // connect
 }
 
 func closeBody(res *http.Response) {
