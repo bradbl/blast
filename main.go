@@ -212,6 +212,7 @@ func (c *core) issueQuery() {
 		panic(err)
 	}
 
+	sentBytes := len(reqBytes)
 	req = req.WithContext(httptrace.WithClientTrace(req.Context(), &trace))
 	start := time.Now()
 	res, err := c.client.Do(req)
@@ -237,7 +238,7 @@ func (c *core) issueQuery() {
 				false, //success
 				failureMsg,
 				0, //recvBytes
-				reqBytes,
+				sentBytes,
 				threads, // grpThreads
 				threads, // allThreads,
 				latency,
@@ -280,7 +281,7 @@ func (c *core) issueQuery() {
 		success,
 		failureMsg,
 		recvBytes,
-		reqBytes,
+		sentBytes,
 		threads, // grpThreads
 		threads, // allThreads,
 		latency,
