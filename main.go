@@ -220,7 +220,9 @@ func (c *core) makeReq() *http.Request {
 
 func (c *core) writeOut() {
 	for line := range c.outChan {
-		fmt.Fprintf(c.out, "%s\n", line)
+		// Add the timestamp field here to ensure it only increases
+		ts := time.Now().UnixNano() / int64(time.Millisecond)
+		fmt.Fprintf(c.out, "%d,%s\n", ts, line)
 	}
 
 	logger.Println("Closing log writer routine")
@@ -282,9 +284,8 @@ func (c *core) issueQuery() {
 		conLatency = 0
 	}
 
-	ts := end.UnixNano() / int64(time.Millisecond)
 	var failureMsg string
-	const outFmt = "%d,%d,%s,%d,%s,%s,%s,%v,%q,%d,%d,%d,%d,%d,%d,%d"
+	const outFmt = "%d,%s,%d,%s,%s,%s,%v,%q,%d,%d,%d,%d,%d,%d,%d"
 
 	if err != nil {
 		atomic.AddInt32(&c.errCount, 1)
@@ -293,7 +294,6 @@ func (c *core) issueQuery() {
 		if c.outChan != nil {
 			c.outChan <- fmt.Sprintf(
 				outFmt,
-				ts,               // timestamp
 				latency,          // elapsed
 				"HTTP Request",   // label
 				0,                // response code
@@ -340,7 +340,6 @@ func (c *core) issueQuery() {
 	threads := atomic.LoadInt32(&c.routines)
 	c.outChan <- fmt.Sprintf(
 		outFmt,
-		ts,               // timestamp
 		latency,          // elapsed
 		"HTTP Request",   // label
 		res.StatusCode,   // response code
