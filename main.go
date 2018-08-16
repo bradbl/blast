@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"crypto/tls"
 	"flag"
 	"fmt"
@@ -102,9 +103,11 @@ var (
 	_keepalive   = flag.Bool("keepalive", true, "Sets keepalive for connections")
 	_workers     = flag.Int("workers", 0, "The number of initial worker routines")
 	_maxworkers  = flag.Int("maxworkers", 0, "The maximum number of workers to spawn")
+	_body        = flag.String("body", "", "The body of the request (either a @file or a string)")
 )
 
 var logger = log.New(ioutil.Discard, "DEBUG ", log.Lshortfile|log.Lmicroseconds)
+var bodyText []byte
 
 func main() {
 	flag.Var(&_headersValue, "header", "Custom header(s)")
@@ -143,8 +146,20 @@ func main() {
 		core.headers.Set(s[0], s[1])
 	}
 
+	if len(*_body) > 0 {
+		if (*_body)[0] == '@' {
+			var err error
+			bodyText, err = ioutil.ReadFile((*_body)[1:])
+			if err != nil {
+				panic(err)
+			}
+		} else {
+			bodyText = []byte(*_body)
+		}
+	}
+
 	if _test != nil && *_test {
-		issueTestRequest(&client, core.makeReq())
+		issueTestRequest(&client, core.makeReq(bodyText))
 		return
 	}
 
@@ -209,13 +224,14 @@ func main() {
 	fmt.Println()
 }
 
-func (c *core) makeReq() *http.Request {
+func (c *core) makeReq(body []byte) *http.Request {
 	req, err := http.NewRequest(c.method, c.url, nil)
 	if err != nil {
 		panic(err)
 	}
 
 	req.Header = c.headers
+	req.Body = ioutil.NopCloser(bytes.NewReader(body))
 	return req
 }
 
@@ -256,7 +272,7 @@ func (c *core) reportStatus() {
 }
 
 func (c *core) issueQuery() {
-	req := c.makeReq()
+	req := c.makeReq(bodyText)
 
 	var conStart, conEnd time.Time
 	trace := httptrace.ClientTrace{
