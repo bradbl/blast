@@ -101,6 +101,7 @@ var (
 	_connections = flag.Int("connections", 10000, "Max open idle connections per target")
 	_keepalive   = flag.Bool("keepalive", true, "Sets keepalive for connections")
 	_workers     = flag.Int("workers", 0, "The number of initial worker routines")
+	_maxworkers  = flag.Int("maxworkers", 0, "The maximum number of workers to spawn")
 )
 
 var logger = log.New(ioutil.Discard, "DEBUG ", log.Lshortfile|log.Lmicroseconds)
@@ -360,7 +361,6 @@ func (c *core) issueQuery() {
 func (c *core) worker(reqChan chan struct{}) {
 	defer c.wg.Done()
 	defer atomic.AddInt32(&c.routines, -1)
-	atomic.AddInt32(&c.routines, 1)
 
 	for range reqChan {
 		c.issueQuery()
@@ -386,9 +386,12 @@ func (c *core) blast(rate *rate) {
 			select {
 			case reqChan <- struct{}{}:
 			default:
-				// All workers busy. Create a new worker and try again.
-				c.wg.Add(1)
-				go c.worker(reqChan)
+				if *_maxworkers > 0 && atomic.LoadInt32(&c.routines) < int32(*_maxworkers) {
+					// All workers busy. Create a new worker and try again.
+					atomic.AddInt32(&c.routines, 1)
+					c.wg.Add(1)
+					go c.worker(reqChan)
+				}
 			}
 
 			// Now we need to wait for the next interval
