@@ -149,6 +149,7 @@ func main() {
 	if len(*_body) > 0 {
 		if (*_body)[0] == '@' {
 			var err error
+			logger.Printf("Reading body text from file %q\n", (*_body)[1:])
 			bodyText, err = ioutil.ReadFile((*_body)[1:])
 			if err != nil {
 				panic(err)
@@ -383,14 +384,17 @@ func (c *core) worker(reqChan chan struct{}) {
 }
 
 func (c *core) blast(rate *rate) {
+	logger.Println("Starting blaster routine")
 	reqChan := make(chan struct{})
 	defer close(reqChan)
 
+	logger.Printf("Spinning up %d initial workers", *_workers)
 	c.wg.Add(*_workers)
 	for i := 0; i < *_workers; i++ {
 		go c.worker(reqChan)
 	}
 
+	logger.Printf("Blasting at a rate of %d, incrementing %d/s\n", rate.rate, rate.increment)
 	for {
 		rate.SetNext()
 		select {
