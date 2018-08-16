@@ -11,9 +11,11 @@ import (
 	"net/http/httptrace"
 	"net/http/httputil"
 	"os"
+	"os/signal"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 )
 
@@ -145,11 +147,22 @@ func main() {
 		return
 	}
 
+	end := func() {
+		logger.Println("Closing the done channel")
+		close(core.done)
+	}
+
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		<-sigs
+		end()
+	}()
+
 	// Run the load test
 	if *_time > 0 {
 		time.AfterFunc(*_time, func() {
-			logger.Println("Closing the done channel")
-			close(core.done)
+			end()
 		})
 	}
 
