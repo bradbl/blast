@@ -225,13 +225,12 @@ func main() {
 }
 
 func (c *core) makeReq(body []byte) *http.Request {
-	req, err := http.NewRequest(c.method, c.url, nil)
+	req, err := http.NewRequest(c.method, c.url, bytes.NewReader(body))
 	if err != nil {
 		panic(err)
 	}
 
 	req.Header = c.headers
-	req.Body = ioutil.NopCloser(bytes.NewReader(body))
 	return req
 }
 
@@ -435,14 +434,14 @@ func issueTestRequest(client *http.Client, req *http.Request) {
 		panic(err)
 	}
 
-	fmt.Printf("%s\n", breq)
+	fmt.Printf("%s\n\n", breq)
 	response, err := client.Do(req)
 	if err != nil {
 		fmt.Printf("%v\n", err)
 		return
 	}
 
-	bres, err := httputil.DumpResponse(response, false)
+	bres, err := httputil.DumpResponse(response, true)
 	if err != nil {
 		panic(err)
 	}
