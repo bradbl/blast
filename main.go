@@ -119,6 +119,7 @@ func main() {
 	}
 
 	url := flag.Arg(0)
+	logger.Printf("Creating client with %v timeout hitting %s", *_timeout, url)
 	client := http.Client{
 		Transport: &http.Transport{
 			TLSClientConfig: &tls.Config{
