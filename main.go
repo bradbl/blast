@@ -37,8 +37,9 @@ type core struct {
 	url     string
 	headers http.Header
 
-	errCount     int32
-	successCount int32
+	errCount       int32
+	successCount   int32
+	successLatency int64
 
 	outChan chan string
 	outDone chan struct{}
@@ -261,10 +262,13 @@ func (c *core) reportStatus() {
 			success := atomic.SwapInt32(&c.successCount, 0)
 			errs := atomic.SwapInt32(&c.errCount, 0)
 			routines := atomic.LoadInt32(&c.routines)
+			latency := atomic.SwapInt64(&c.successLatency, 0)
 			rate := success + errs
 			totalSuccess += success
 			totalErr += errs
-			fmt.Fprintf(os.Stderr, "Rate: %d RPS\tSuccess:%d\tErr:%d\tRoutines:%d\n", rate, totalSuccess, totalErr, routines)
+			avgLatency := time.Duration(latency / int64(success))
+
+			fmt.Fprintf(os.Stderr, "Rate: %d RPS\tSuccess:%d\tErr:%d\tRoutines:%d\tLatency:%v\n", rate, totalSuccess, totalErr, routines, avgLatency)
 		case <-c.done:
 			logger.Println("Closing status reporter routine")
 			return
@@ -338,6 +342,7 @@ func (c *core) issueQuery() {
 
 	if success {
 		atomic.AddInt32(&c.successCount, 1)
+		atomic.AddInt64(&c.successLatency, int64(latency))
 	} else {
 		atomic.AddInt32(&c.errCount, 1)
 	}
