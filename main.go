@@ -266,8 +266,10 @@ func (c *core) reportStatus() {
 			rate := success + errs
 			totalSuccess += success
 			totalErr += errs
-			avgLatency := time.Duration(latency / int64(success))
-
+			var avgLatency time.Duration
+			if success > 0 {
+				avgLatency = time.Duration(latency / int64(success))
+			}
 			fmt.Fprintf(os.Stderr, "Rate: %d RPS\tSuccess:%d\tErr:%d\tRoutines:%d\tLatency:%v\n", rate, totalSuccess, totalErr, routines, avgLatency)
 		case <-c.done:
 			logger.Println("Closing status reporter routine")
