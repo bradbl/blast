@@ -342,7 +342,7 @@ func (c *core) issueQuery() {
 
 	if success {
 		atomic.AddInt32(&c.successCount, 1)
-		atomic.AddInt64(&c.successLatency, int64(latency))
+		atomic.AddInt64(&c.successLatency, end.Sub(start).Nanoseconds())
 	} else {
 		atomic.AddInt32(&c.errCount, 1)
 	}
