@@ -210,7 +210,6 @@ func main() {
 	go func() {
 		for range ticker.C {
 			logger.Printf("Routines: %d", atomic.LoadInt32(&core.routines))
-			return
 		}
 	}()
 
