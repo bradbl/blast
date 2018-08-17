@@ -104,6 +104,7 @@ var (
 	_workers     = flag.Int("workers", 0, "The number of initial worker routines")
 	_maxworkers  = flag.Int("maxworkers", 0, "The maximum number of workers to spawn")
 	_body        = flag.String("body", "", "The body of the request (either a @file or a string)")
+	_timeout     = flag.Duration("timeout", 10*time.Second, "Timeout specifies a time limit for requests made by the HTTP client")
 )
 
 var logger = log.New(ioutil.Discard, "DEBUG ", log.Lshortfile|log.Lmicroseconds)
@@ -127,7 +128,7 @@ func main() {
 			IdleConnTimeout:     10 * time.Second,
 			DisableKeepAlives:   !*_keepalive,
 		},
-		Timeout: 10 * time.Second,
+		Timeout: *_timeout,
 	}
 
 	core := core{
