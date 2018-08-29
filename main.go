@@ -37,6 +37,7 @@ type core struct {
 	url     string
 	headers http.Header
 
+	r              *rate
 	errCount       int32
 	successCount   int32
 	successLatency int64
@@ -51,7 +52,7 @@ type core struct {
 }
 
 type rate struct {
-	rate      int
+	rate      int32
 	increment int
 
 	nextTick time.Time
@@ -60,15 +61,25 @@ type rate struct {
 
 func newRate(r, inc int) *rate {
 	return &rate{
-		rate:      r,
+		rate:      int32(r),
 		increment: inc,
 
 		nextInc: time.Now().Add(time.Second),
 	}
 }
 
+func (r *rate) TargetRate() int {
+	val := atomic.LoadInt32(&r.rate)
+	return int(val)
+}
+
+func (r *rate) Increment() int {
+	return r.increment
+}
+
 func (r *rate) SetNext() {
-	freq := time.Duration(1.0 / float64(r.rate) * float64(time.Second))
+	ar := atomic.LoadInt32(&r.rate)
+	freq := time.Duration(1.0 / float64(ar) * float64(time.Second))
 	r.nextTick = time.Now().Add(freq)
 }
 
@@ -85,7 +96,7 @@ func (r *rate) Pause() {
 	// Increment the rate if needed
 	if r.increment > 0 {
 		for time.Now().After(r.nextInc) {
-			r.rate += r.increment
+			atomic.AddInt32(&r.rate, int32(r.increment))
 			r.nextInc = r.nextInc.Add(time.Second)
 		}
 	}
@@ -139,6 +150,7 @@ func main() {
 		method:  *_method,
 		headers: make(http.Header),
 		done:    make(chan struct{}),
+		r:       newRate(*_rate, *_increment),
 	}
 
 	for _, header := range _headersValue {
@@ -203,7 +215,7 @@ func main() {
 	core.wg.Add(1)
 	go core.reportStatus()
 
-	core.blast(newRate(*_rate, *_increment))
+	core.blast()
 
 	// When blast returns the load test is done, so wait for all outstanding routines to close
 	logger.Println("Waiting for outstanding requests")
@@ -270,7 +282,7 @@ func (c *core) reportStatus() {
 			if success > 0 {
 				avgLatency = time.Duration(latency / int64(success))
 			}
-			fmt.Fprintf(os.Stderr, "Rate: %d RPS\tSuccess:%d\tErr:%d\tRoutines:%d\tLatency:%v\n", rate, totalSuccess, totalErr, routines, avgLatency)
+			fmt.Fprintf(os.Stderr, "Target: %d\tRate: %d RPS\tSuccess:%d\tErr:%d\tRoutines:%d\tLatency:%v\n", c.r.TargetRate(), rate, totalSuccess, totalErr, routines, avgLatency)
 		case <-c.done:
 			logger.Println("Closing status reporter routine")
 			return
@@ -391,7 +403,7 @@ func (c *core) worker(reqChan chan struct{}) {
 	}
 }
 
-func (c *core) blast(rate *rate) {
+func (c *core) blast() {
 	logger.Println("Starting blaster routine")
 	reqChan := make(chan struct{})
 	defer close(reqChan)
@@ -402,7 +414,8 @@ func (c *core) blast(rate *rate) {
 		go c.worker(reqChan)
 	}
 
-	logger.Printf("Blasting at a rate of %d, incrementing %d/s\n", rate.rate, rate.increment)
+	rate := c.r
+	logger.Printf("Blasting at a rate of %d, incrementing %d/s\n", rate.TargetRate(), rate.Increment())
 	for {
 		rate.SetNext()
 		select {
