@@ -52,16 +52,22 @@ type core struct {
 }
 
 type rate struct {
-	rate      int32
+	rate      int
+	maxrate   int
 	increment int
+	l         sync.RWMutex
 
+	// nextTick is the next time we need to send a request
 	nextTick time.Time
-	nextInc  time.Time
+
+	// nextInc is the next time we need to increment the rate
+	nextInc time.Time
 }
 
-func newRate(r, inc int) *rate {
+func newRate(r, inc, max int) *rate {
 	return &rate{
-		rate:      int32(r),
+		rate:      r,
+		maxrate:   max,
 		increment: inc,
 
 		nextInc: time.Now().Add(time.Second),
@@ -69,7 +75,9 @@ func newRate(r, inc int) *rate {
 }
 
 func (r *rate) TargetRate() int {
-	val := atomic.LoadInt32(&r.rate)
+	r.l.RLock()
+	val := r.rate
+	r.l.RUnlock()
 	return int(val)
 }
 
@@ -78,7 +86,10 @@ func (r *rate) Increment() int {
 }
 
 func (r *rate) SetNext() {
-	ar := atomic.LoadInt32(&r.rate)
+	r.l.RLock()
+	ar := r.rate
+	r.l.RUnlock()
+
 	freq := time.Duration(1.0 / float64(ar) * float64(time.Second))
 	r.nextTick = time.Now().Add(freq)
 }
@@ -95,8 +106,22 @@ func (r *rate) Pause() {
 
 	// Increment the rate if needed
 	if r.increment > 0 {
+		r.l.RLock()
+		if r.rate == r.maxrate {
+			r.l.RUnlock()
+			return
+		}
+
+		r.l.RUnlock()
+		r.l.Lock()
+		defer r.l.Unlock()
+
 		for time.Now().After(r.nextInc) {
-			atomic.AddInt32(&r.rate, int32(r.increment))
+			r.rate = r.rate + r.increment
+			if r.rate > r.maxrate {
+				r.rate = r.maxrate
+				return
+			}
 			r.nextInc = r.nextInc.Add(time.Second)
 		}
 	}
@@ -105,7 +130,8 @@ func (r *rate) Pause() {
 var _headersValue headerFlags
 var (
 	_rate        = flag.Int("rate", 1, "RPS for the test")
-	_increment   = flag.Int("increment", 0, "RPS that the rate increments linearly over time")
+	_maxrate     = flag.Int("maxrate", 0, "Maxmium target RPS")
+	_increment   = flag.Int("increment", 0, "RPS that the rate increments by linearly over time, each second")
 	_test        = flag.Bool("test", false, "Issues a single test request and prints the output")
 	_time        = flag.Duration("time", 0, "How long the test should run")
 	_method      = flag.String("method", http.MethodGet, "The method to use")
@@ -150,7 +176,7 @@ func main() {
 		method:  *_method,
 		headers: make(http.Header),
 		done:    make(chan struct{}),
-		r:       newRate(*_rate, *_increment),
+		r:       newRate(*_rate, *_increment, *_maxrate),
 	}
 
 	for _, header := range _headersValue {
@@ -397,6 +423,7 @@ func (c *core) issueQuery() {
 func (c *core) worker(reqChan chan struct{}) {
 	defer c.wg.Done()
 	defer atomic.AddInt32(&c.routines, -1)
+	atomic.AddInt32(&c.routines, 1)
 
 	for range reqChan {
 		c.issueQuery()
@@ -428,7 +455,6 @@ func (c *core) blast() {
 			default:
 				if *_maxworkers > 0 && atomic.LoadInt32(&c.routines) < int32(*_maxworkers) {
 					// All workers busy. Create a new worker and try again.
-					atomic.AddInt32(&c.routines, 1)
 					c.wg.Add(1)
 					go c.worker(reqChan)
 				}
