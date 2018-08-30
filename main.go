@@ -85,6 +85,10 @@ func (r *rate) Increment() int {
 	return r.increment
 }
 
+func (r *rate) MaxRate() int {
+	return r.maxrate
+}
+
 func (r *rate) SetNext() {
 	r.l.RLock()
 	ar := r.rate
@@ -442,7 +446,12 @@ func (c *core) blast() {
 	}
 
 	rate := c.r
-	logger.Printf("Blasting at a rate of %d, incrementing %d/s\n", rate.TargetRate(), rate.Increment())
+	startMsg := fmt.Sprintf("Blasting at a rate of %d RPS, incrementing %d/s", rate.TargetRate(), rate.Increment())
+	if rate.MaxRate() > 0 {
+		startMsg += fmt.Sprintf(" up to a max of %d RPS", rate.MaxRate())
+	}
+
+	logger.Println(startMsg)
 	for {
 		rate.SetNext()
 		select {
