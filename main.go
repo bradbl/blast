@@ -52,25 +52,22 @@ type core struct {
 }
 
 type rate struct {
-	rate      int
+	rate      int32
 	maxrate   int
 	increment int
-	l         sync.RWMutex
 	c         chan struct{}
 }
 
 func newRate(r, inc, max int) *rate {
 	return &rate{
-		rate:      r,
+		rate:      int32(r),
 		maxrate:   max,
 		increment: inc,
 	}
 }
 
 func (r *rate) TargetRate() int {
-	r.l.RLock()
-	val := r.rate
-	r.l.RUnlock()
+	val := atomic.LoadInt32(&r.rate)
 	return int(val)
 }
 
@@ -87,10 +84,7 @@ func (r *rate) Start() <-chan struct{} {
 	go func() {
 		for {
 			r.c <- struct{}{}
-			r.l.RLock()
-			ar := r.rate
-			r.l.RUnlock()
-
+			ar := atomic.LoadInt32(&r.rate)
 			freq := time.Duration(1.0 / float64(ar) * float64(time.Second))
 			nextTick := time.Now().Add(freq)
 
@@ -112,13 +106,10 @@ func (r *rate) Start() <-chan struct{} {
 			defer ticker.Stop()
 
 			for range ticker.C {
-				r.l.Lock()
-				r.rate += r.increment
-				if r.rate == r.maxrate {
-					r.l.Unlock()
+				newrate := atomic.AddInt32(&r.rate, int32(r.increment))
+				if newrate >= int32(r.maxrate) {
 					return
 				}
-				r.l.Unlock()
 			}
 		}()
 	}
