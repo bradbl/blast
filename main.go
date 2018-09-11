@@ -85,7 +85,6 @@ func (r *rate) MaxRate() int {
 func (r *rate) Start() <-chan struct{} {
 	r.c = make(chan struct{})
 	go func() {
-		nextInc := time.Now().Add(time.Second)
 		for {
 			r.c <- struct{}{}
 			r.l.RLock()
@@ -103,39 +102,28 @@ func (r *rate) Start() <-chan struct{} {
 			} else {
 				time.Sleep(waitTime)
 			}
-
-			// Increment the rate if needed
-			nextInc = r.incrementRate(nextInc)
 		}
 	}()
+
+	// Rate incrementer
+	if r.increment > 0 {
+		go func() {
+			ticker := time.NewTicker(time.Second)
+			defer ticker.Stop()
+
+			for range ticker.C {
+				r.l.Lock()
+				r.rate += r.increment
+				if r.rate == r.maxrate {
+					r.l.Unlock()
+					return
+				}
+				r.l.Unlock()
+			}
+		}()
+	}
+
 	return r.c
-}
-
-func (r *rate) incrementRate(nextInc time.Time) time.Time {
-	// Increment the rate if needed
-	if r.increment == 0 {
-		return time.Time{}
-	}
-
-	r.l.RLock()
-	if r.rate == r.maxrate {
-		r.l.RUnlock()
-		return time.Time{}
-	}
-
-	r.l.RUnlock()
-	r.l.Lock()
-	defer r.l.Unlock()
-
-	for time.Now().After(nextInc) {
-		r.rate = r.rate + r.increment
-		if r.rate > r.maxrate {
-			r.rate = r.maxrate
-			return time.Time{}
-		}
-		nextInc = nextInc.Add(time.Second)
-	}
-	return nextInc
 }
 
 var _headersValue headerFlags
