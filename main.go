@@ -56,12 +56,7 @@ type rate struct {
 	maxrate   int
 	increment int
 	l         sync.RWMutex
-
-	// nextTick is the next time we need to send a request
-	nextTick time.Time
-
-	// nextInc is the next time we need to increment the rate
-	nextInc time.Time
+	c         chan struct{}
 }
 
 func newRate(r, inc, max int) *rate {
@@ -69,8 +64,6 @@ func newRate(r, inc, max int) *rate {
 		rate:      r,
 		maxrate:   max,
 		increment: inc,
-
-		nextInc: time.Now().Add(time.Second),
 	}
 }
 
@@ -89,46 +82,60 @@ func (r *rate) MaxRate() int {
 	return r.maxrate
 }
 
-func (r *rate) SetNext() {
-	r.l.RLock()
-	ar := r.rate
-	r.l.RUnlock()
+func (r *rate) Start() <-chan struct{} {
+	r.c = make(chan struct{})
+	go func() {
+		nextInc := time.Now().Add(time.Second)
+		for {
+			r.c <- struct{}{}
+			r.l.RLock()
+			ar := r.rate
+			r.l.RUnlock()
 
-	freq := time.Duration(1.0 / float64(ar) * float64(time.Second))
-	r.nextTick = time.Now().Add(freq)
+			freq := time.Duration(1.0 / float64(ar) * float64(time.Second))
+			nextTick := time.Now().Add(freq)
+
+			// Now we need to wait for the next interval
+			waitTime := time.Now().Sub(nextTick)
+			if waitTime < time.Millisecond {
+				for time.Now().Before(nextTick) {
+				}
+			} else {
+				time.Sleep(waitTime)
+			}
+
+			// Increment the rate if needed
+			nextInc = r.incrementRate(nextInc)
+		}
+	}()
+	return r.c
 }
 
-func (r *rate) Pause() {
-	// Now we need to wait for the next interval
-	waitTime := time.Now().Sub(r.nextTick)
-	if waitTime < time.Millisecond {
-		for time.Now().Before(r.nextTick) {
-		}
-	} else {
-		time.Sleep(waitTime)
-	}
-
+func (r *rate) incrementRate(nextInc time.Time) time.Time {
 	// Increment the rate if needed
-	if r.increment > 0 {
-		r.l.RLock()
-		if r.rate == r.maxrate {
-			r.l.RUnlock()
-			return
-		}
-
-		r.l.RUnlock()
-		r.l.Lock()
-		defer r.l.Unlock()
-
-		for time.Now().After(r.nextInc) {
-			r.rate = r.rate + r.increment
-			if r.rate > r.maxrate {
-				r.rate = r.maxrate
-				return
-			}
-			r.nextInc = r.nextInc.Add(time.Second)
-		}
+	if r.increment == 0 {
+		return time.Time{}
 	}
+
+	r.l.RLock()
+	if r.rate == r.maxrate {
+		r.l.RUnlock()
+		return time.Time{}
+	}
+
+	r.l.RUnlock()
+	r.l.Lock()
+	defer r.l.Unlock()
+
+	for time.Now().After(nextInc) {
+		r.rate = r.rate + r.increment
+		if r.rate > r.maxrate {
+			r.rate = r.maxrate
+			return time.Time{}
+		}
+		nextInc = nextInc.Add(time.Second)
+	}
+	return nextInc
 }
 
 var _headersValue headerFlags
@@ -452,8 +459,8 @@ func (c *core) blast() {
 	}
 
 	logger.Println(startMsg)
-	for {
-		rate.SetNext()
+	tick := rate.Start()
+	for range tick {
 		select {
 		case <-c.done:
 			logger.Println("Closing the blaster routine")
@@ -462,15 +469,12 @@ func (c *core) blast() {
 			select {
 			case reqChan <- struct{}{}:
 			default:
-				if *_maxworkers > 0 && atomic.LoadInt32(&c.routines) < int32(*_maxworkers) {
+				if *_maxworkers == 0 || (atomic.LoadInt32(&c.routines) < int32(*_maxworkers)) {
 					// All workers busy. Create a new worker and try again.
 					c.wg.Add(1)
 					go c.worker(reqChan)
 				}
 			}
-
-			// Now we need to wait for the next interval
-			rate.Pause()
 		}
 	}
 }
